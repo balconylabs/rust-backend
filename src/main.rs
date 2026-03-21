@@ -16,5 +16,5 @@ async fn main() {
 
 // The function that runs when someone visits your domain
 async fn handler() -> &'static str {
-    "Hello from the Rust backend! The Caddy reverse proxy is working perfectly."
+    "rust-backend test"
 }
