@@ -1,13 +1,14 @@
 use axum::{
     Router,
     extract::{Json, State},
+    response::IntoResponse,
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use sqlx::{FromRow, PgPool, postgres::PgPoolOptions};
 use std::env;
 
-// 1. Define the structures for our data
 #[derive(Serialize, FromRow)]
 struct User {
     id: uuid::Uuid,
@@ -22,28 +23,52 @@ struct CreateUser {
     email: String,
 }
 
+enum AppError {
+    UserAlreadyExists,
+    InternalServerError(String),
+}
+
+impl IntoResponse for AppError {
+    fn into_response(self) -> axum::response::Response {
+        let (status, error_message) = match self {
+            AppError::UserAlreadyExists => (
+                axum::http::status::StatusCode::CONFLICT,
+                "A user with that username or email already exists".to_string(),
+            ),
+            AppError::InternalServerError(err) => {
+                println!("Database error: {err}");
+                (
+                    axum::http::status::StatusCode::INTERNAL_SERVER_ERROR,
+                    "Something went wrong on our end.".to_string(),
+                )
+            }
+        };
+
+        let body = Json(json!({
+            "error":error_message
+        }));
+
+        (status, body).into_response()
+    }
+}
+
 #[tokio::main]
 async fn main() {
-    // Load the .env file if it exists (useful for local development)
     dotenvy::dotenv().ok();
 
-    // Grab the connection string
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
 
-    // 2. Set up the connection pool
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(&db_url)
         .await
         .expect("Failed to connect to Postgres");
 
-    // 3. Build the router and pass the database pool as shared state
     let app = Router::new()
         .route("/", get(root_handler))
         .route("/users", post(create_user).get(get_users))
         .with_state(pool);
 
-    // Bind and serve
     let listener = tokio::net::TcpListener::bind("127.0.0.1:8000")
         .await
         .unwrap();
@@ -51,17 +76,14 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
-// The original test route
 async fn root_handler() -> &'static str {
     "Hello from the Rust backend! The database pool is live."
 }
 
-// 4. The endpoint to create a new user
 async fn create_user(
     State(pool): State<PgPool>,
     Json(payload): Json<CreateUser>,
-) -> Result<Json<User>, axum::http::StatusCode> {
-    // sqlx::query_as! checks the SQL syntax and return types against your database at compile time
+) -> Result<Json<User>, AppError> {
     let user = sqlx::query_as!(
         User,
         r#"
@@ -74,9 +96,16 @@ async fn create_user(
     )
     .fetch_one(&pool)
     .await
-    .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+    .map_err(|e| {
+        if let sqlx::Error::Database(db_err) = &e
+            && db_err.code().as_deref() == Some("23505")
+        {
+            return AppError::UserAlreadyExists;
+        }
 
-    // Return the newly created user as JSON
+        AppError::InternalServerError(e.to_string())
+    })?;
+
     Ok(Json(user))
 }
 
