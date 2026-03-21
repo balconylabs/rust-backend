@@ -1,10 +1,10 @@
 use axum::{
-    extract::{State, Json},
-    routing::{get, post},
     Router,
+    extract::{Json, State},
+    routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
-use sqlx::{postgres::PgPoolOptions, PgPool, FromRow};
+use sqlx::{FromRow, PgPool, postgres::PgPoolOptions};
 use std::env;
 
 // 1. Define the structures for our data
@@ -40,11 +40,13 @@ async fn main() {
     // 3. Build the router and pass the database pool as shared state
     let app = Router::new()
         .route("/", get(root_handler))
-        .route("/users", post(create_user))
+        .route("/users", post(create_user).get(get_users))
         .with_state(pool);
 
     // Bind and serve
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:8000").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:8000")
+        .await
+        .unwrap();
     println!("Listening on 127.0.0.1:8000...");
     axum::serve(listener, app).await.unwrap();
 }
@@ -59,7 +61,6 @@ async fn create_user(
     State(pool): State<PgPool>,
     Json(payload): Json<CreateUser>,
 ) -> Result<Json<User>, axum::http::StatusCode> {
-    
     // sqlx::query_as! checks the SQL syntax and return types against your database at compile time
     let user = sqlx::query_as!(
         User,
@@ -77,4 +78,20 @@ async fn create_user(
 
     // Return the newly created user as JSON
     Ok(Json(user))
+}
+
+async fn get_users(State(pool): State<PgPool>) -> Result<Json<Vec<User>>, axum::http::StatusCode> {
+    let users = sqlx::query_as!(
+        User,
+        r#"
+        SELECT id, username, email, created_at
+        FROM users
+        ORDER BY created_at DESC
+        "#
+    )
+    .fetch_all(&pool)
+    .await
+    .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(users))
 }
