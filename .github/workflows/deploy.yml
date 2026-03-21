@@ -1,0 +1,24 @@
+name: Deploy to Oracle Cloud
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Execute deployment commands via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          # We use the absolute path for cargo because non-interactive SSH 
+          # sessions don't always load the ~/.cargo/env paths automatically.
+          script: |
+            cd /home/aaron/rust-backend
+            git pull origin main
+            /home/aaron/.cargo/bin/cargo build --release
+            sudo systemctl restart rust-backend
