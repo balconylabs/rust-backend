@@ -12,3 +12,4 @@ serde_json = "1.0.149"
 sqlx = { version = "0.8.6", features = ["postgres", "runtime-tokio-native-tls", "uuid", "chrono", "macros"] }
 tokio = { version = "1.50.0", features = ["full"] }
 uuid = { version = "1.22.0", features = ["v4", "serde"] }
+validator = { version = "0.20.0", features = ["derive"] }

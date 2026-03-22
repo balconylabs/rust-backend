@@ -1,5 +1,6 @@
 use axum::{Json, extract::State};
 use sqlx::PgPool;
+use validator::Validate;
 
 use crate::{
     error::AppError,
@@ -10,6 +11,10 @@ pub async fn create_user(
     State(pool): State<PgPool>,
     Json(payload): Json<CreateUser>,
 ) -> Result<Json<User>, AppError> {
+    if let Err(errors) = payload.validate() {
+        return Err(AppError::ValidationError(errors));
+    }
+
     let user = sqlx::query_as!(
         User,
         r#"
